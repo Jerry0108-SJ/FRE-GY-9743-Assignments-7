@@ -1,0 +1,177 @@
+from typing import Optional, Union, List
+import pandas as pd
+import QuantLib as ql
+# in-house
+from fixedincomelib.date.basics import (Date, Period)
+from fixedincomelib.market.basics import (
+    AccrualBasis as _AccrualBasis,
+    BusinessDayConvention as _BusinessDayConvention,
+    HolidayConvention as _HolidayConvention,
+)
+
+
+def _native_value(value):
+    """Accept convention wrappers and native QuantLib values."""
+    if isinstance(value, (_AccrualBasis, _BusinessDayConvention, _HolidayConvention)):
+        return value.value
+    return value
+
+
+def add_period(
+    start_date : Date,
+    term : Period,
+    business_day_convention : Union[int, _BusinessDayConvention],
+    holiday_convention : Union[ql.Calendar, _HolidayConvention],
+    end_of_month : Optional[bool]=False) -> Date:
+
+    business_day_convention = _native_value(business_day_convention)
+    holiday_convention = _native_value(holiday_convention)
+    # A zero-length term only adjusts the date.
+    if term.length() == 0:
+        return move_to_business_day(start_date, business_day_convention, holiday_convention)
+    return Date(holiday_convention.advance(start_date, term, business_day_convention, end_of_month))
+
+def subtract_period(
+    start_date : Date,
+    term : Period,
+    business_day_convention : Union[int, _BusinessDayConvention],
+    holiday_convention : Union[ql.Calendar, _HolidayConvention],
+    end_of_month : Optional[bool]=False) -> Date:
+
+    return add_period(
+        start_date, Period.negate_period(term), business_day_convention, holiday_convention, end_of_month
+    )
+
+def move_to_business_day(
+    input_date: Date,
+    business_day_convention: Union[int, _BusinessDayConvention],
+    holiday_convention: Union[ql.Calendar, _HolidayConvention]) -> Date:
+
+    business_day_convention = _native_value(business_day_convention)
+    holiday_convention = _native_value(holiday_convention)
+    return Date(holiday_convention.adjust(input_date, business_day_convention))
+
+def accrued(
+    start_date: Date,
+    end_date: Date,
+    accrual_basis: Optional[Union[ql.DayCounter, _AccrualBasis]] = ql.ActualActual(ql.ActualActual.ISDA),
+    business_day_convention: Optional[Union[int, _BusinessDayConvention]] = ql.Preceding,
+    holiday_convention: Optional[Union[ql.Calendar, _HolidayConvention]] = ql.NullCalendar(),
+    end_date_is_business_day: Optional[bool] = False) -> float:
+
+    accrual_basis = _native_value(accrual_basis)
+    # Adjust the end unless the caller has already done so.
+    adjusted_end_dt = (
+        end_date
+        if end_date_is_business_day
+        else move_to_business_day(end_date, business_day_convention, holiday_convention)
+    )
+    return accrual_basis.yearFraction(start_date, adjusted_end_dt)
+
+def is_business_day(input_date: Date, holiday_convention: ql.Calendar) -> bool:
+    return holiday_convention.isBusinessDay(input_date)
+
+def is_holiday(input_date: Date, holiday_convention: ql.Calendar) -> bool:
+    return holiday_convention.isHoliday(input_date)
+
+def is_end_of_month(input_date: Date, holiday_convention: ql.Calendar) -> bool:
+    return holiday_convention.isEndOfMonth(input_date)
+
+def end_of_month(input_date: Date, holiday_convention: ql.Calendar) -> Date:
+    return holiday_convention.endOfMonth(input_date)
+
+def make_schedule(
+    start_date: Date,
+    end_date: Date,
+    accrual_period: Period,
+    holiday_convention: ql.Calendar,
+    business_day_convention: int,
+    accrual_basis: ql.DayCounter,
+    rule: Optional[int] = ql.DateGeneration.Backward,
+    end_of_month: Optional[bool]=False,
+    fix_in_arrear: Optional[bool]=False,
+    fixing_offset: Optional[Period]=Period(ql.NoFrequency),
+    pay_in_advance : Optional[bool]=False,
+    payment_offset: Optional[Period]=Period(ql.NoFrequency),
+    payment_business_day_convention : Optional[int]=ql.Following,
+    payment_holiday_convention: Optional[ql.Calendar]=ql.NullCalendar(),
+    first_regular_date : Optional[Date]=Date(),
+    next_to_last_date : Optional[Date]=Date(),
+    as_dataframe: Optional[bool]=False) -> Union[pd.DataFrame, List]:
+
+    assert rule in [ql.DateGeneration.Forward, ql.DateGeneration.Backward]
+    
+    # set up start date and end date of each period
+    this_schedule = ql.Schedule(
+        start_date,
+        end_date,
+        accrual_period,
+        holiday_convention,
+        business_day_convention,
+        business_day_convention,
+        rule,
+        end_of_month,
+        first_regular_date,
+        next_to_last_date)
+
+    # add fixing date and payment date
+    start_dates = this_schedule.dates()[:-1]
+    end_dates = this_schedule.dates()[1:]
+    fixing_dates_s, fixing_dates_e, payment_dates, accs = [], [], [], []
+    for s, e in zip(start_dates, end_dates):
+        f_s = s
+        f_e = None
+        if fixing_offset.is_valid():
+            f_s = subtract_period(
+                s, 
+                fixing_offset, 
+                business_day_convention, 
+                holiday_convention)
+            if fix_in_arrear:
+                f_e = subtract_period(
+                    e, 
+                    fixing_offset, 
+                    business_day_convention, 
+                    holiday_convention)
+        fixing_dates_s.append(f_s)
+        fixing_dates_e.append(f_e)
+        p = s if pay_in_advance else e
+        if payment_offset.is_valid():
+            p = add_period(
+                p,
+                payment_offset,
+                payment_business_day_convention,
+                payment_holiday_convention)
+        else:
+            p = move_to_business_day(
+                p,
+                payment_business_day_convention,
+                payment_holiday_convention)
+        payment_dates.append(p)
+        accs.append(accrued(s, e, accrual_basis, business_day_convention, holiday_convention))
+
+    rows = list(zip(start_dates, end_dates, fixing_dates_s, fixing_dates_e, payment_dates, accs))
+
+    if not as_dataframe:
+        return rows
+
+    return pd.DataFrame(rows, columns=['StartDate', 'EndDate', 'StartFixingDate', 'EndFixingDate', 'PaymentDate', 'Accrued'])
+
+def daily_business_day_dates(
+    start_date: Date,
+    end_date: Date,
+    business_day_convention: int,
+    holiday_convention: ql.Calendar) -> list:
+
+    # businessDayList is one linear C++ call. ql.Schedule with a 1-day tenor resolves each date as
+    # start + n days, so it is quadratic in the span -- 2.8us/date over a ~65-day accrual period but
+    # 30.9us/date over 60Y -- and it throws 'degenerate single date schedule' when both endpoints
+    # adjust onto the same business day. Adjusting the endpoints here reproduces the terminationDate
+    # roll the Schedule applied: without it an end date on a holiday would stop short of the next
+    # fixing instead of rolling forward onto it, silently dropping the period's last accrual day.
+    return list(
+        holiday_convention.businessDayList(
+            holiday_convention.adjust(start_date, business_day_convention),
+            holiday_convention.adjust(end_date, business_day_convention),
+        )
+    )

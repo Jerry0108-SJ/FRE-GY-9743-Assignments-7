@@ -1,0 +1,51 @@
+{
+  "SOFR-1B-IFR": {
+    "type": "INSTANTANEOUS FORWARD RATE",
+    "index": "SOFR-1B",
+    "business_day_convention": "F",
+    "holiday_convention": "USGS"
+  },
+  "SOFR-1B-FUNDING-IFR": {
+    "type": "INSTANTANEOUS FORWARD RATE",
+    "index": "SOFR-1B",
+    "business_day_convention": "F",
+    "holiday_convention": "USGS"
+  },
+  "USD-SOFR-OIS": {
+    "type": "RFR SWAP",
+    "index": "SOFR-1B",
+    "accrual_basis": "ACT/360",
+    "accrual_period": "1Y",
+    "payment_offset": "2D",
+    "payment_business_day_convention": "F",
+    "payment_holiday_convention": "USGS",
+    "compounding_method": "COMPOUND"
+  },
+  "USD-FF-3M-OVER-USD-SOFR-OIS-3M": {
+    "type": "OVERNIGHT INDEX BASIS SWAP",
+    "basis_oi_index": "SOFR-1B",
+    "reference_oi_index": "FF-1B",
+    "accrual_basis": "ACT/360",
+    "accrual_period_1": "3M",
+    "accrual_period_2": "3M",
+    "payment_offset": "2D",
+    "payment_business_day_convention": "F",
+    "payment_holiday_convention": "USGS",
+    "compounding_method": "COMPOUND"
+  },
+  "FF-1B-IFR": {
+    "type": "INSTANTANEOUS FORWARD RATE",
+    "index": "FF-1B",
+    "business_day_convention": "F",
+    "holiday_convention": "USFED"
+  },
+  "USD-SOFR-FRA": {
+    "type": "FRA",
+    "index": "SOFR-1B",
+    "accrual_basis": "ACT/360",
+    "business_day_convention": "F",
+    "holiday_convention": "USGS",
+    "fixing_offset": "0D",
+    "payment_offset": "0D"
+  }
+}
