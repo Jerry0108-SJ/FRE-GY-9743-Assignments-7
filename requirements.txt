@@ -5,3 +5,7 @@ pandas==2.3.1
 QuantLib==1.41
 jupyter>=1.1
 ipykernel>=6.29
+jupyter>=1.1
+ipykernel>=6.29
+# HW7: the IFR curve plot in the notebook.
+matplotlib>=3.8
